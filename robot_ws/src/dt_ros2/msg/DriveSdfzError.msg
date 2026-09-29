@@ -1,0 +1,16 @@
+bool internal
+bool encoder_abz
+bool encoder_uvw
+bool encoder_count
+bool drive_overtemp
+bool drive_bus_overvoltage
+bool drive_bus_undervoltage
+bool drive_short_circuit
+bool brake_overtemp
+bool actual_following
+bool reserved
+bool i2t
+bool speed_following
+bool motor_overtemp
+bool encoder_comm
+bool comm_loss

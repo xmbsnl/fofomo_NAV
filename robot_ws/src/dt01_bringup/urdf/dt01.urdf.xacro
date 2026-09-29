@@ -1,0 +1,327 @@
+<?xml version="1.0"?>
+<!--
+  DT-01 差速底盘仿真模型
+  关键尺寸（来自 DT-01 手册 / 开发计划）：
+    - 驱动轮直径 140mm (0.14m)
+    - 轮距（两驱动轮间距）312mm (0.312m)  => 半轮距 0.156m
+    - 2 个万向脚轮（前后各一，仿真中用摩擦球近似）
+  车体尺寸为合理估算（车到手后按实测更新）。
+-->
+<robot name="dt01" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- sim_mode: true=仿真（含 Gazebo 插件），false=真机（仅模型与 TF）。
+       真机用法见 dt01_real.urdf.xacro（wrapper 覆盖本属性再 include）。
+       注意：命令行传参一律是字符串，无法覆盖布尔属性，必须用 wrapper。 -->
+  <xacro:property name="sim_mode" default="true"/>
+
+  <!-- ===== 可调参数 =====
+       尺寸来源：
+       - 轮径/轮距：DT-01 手册（140mm / 312mm）
+       - 车体长/宽：DT-01客户版V-3.2.STEP 实测（长 515mm / 整机宽 403mm）
+       - 车体高度：估算（STEP 整机高 289mm 含顶部结构）
+       车到手后按实测更新。 -->
+  <xacro:property name="wheel_diameter" value="0.14"/>      <!-- 轮径 140mm -->
+  <xacro:property name="wheel_radius" value="0.07"/>
+  <xacro:property name="wheel_width" value="0.04"/>
+  <xacro:property name="half_track" value="0.156"/>         <!-- 半轮距 312/2 -->
+  <xacro:property name="wheel_mass" value="0.8"/>
+
+  <!-- 官方手册：500*420*310mm，35kg，离地 23mm -->
+  <xacro:property name="body_length" value="0.50"/>
+  <xacro:property name="body_width" value="0.42"/>
+  <xacro:property name="body_height" value="0.25"/>
+  <xacro:property name="body_mass" value="35.0"/>
+
+  <!-- 激光雷达安装位置（车头中心，顶部附近） -->
+  <xacro:property name="lidar_x" value="0.18"/>
+  <xacro:property name="lidar_z" value="0.32"/>
+
+  <!-- IMU 安装位置（车体中心，IMU-Sealand 安装角误差支持，先居中） -->
+  <xacro:property name="imu_x" value="0.0"/>
+  <xacro:property name="imu_z" value="0.05"/>
+
+  <!-- ===== 基础链接 ===== -->
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <!-- 高可见度亮白车身，避免与灰色地面/墙面融合 -->
+      <material name="body_white">
+        <color rgba="0.92 0.94 0.96 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="${body_mass}"/>
+      <inertia ixx="0.3" ixy="0" ixz="0" iyy="0.3" iyz="0" izz="0.3"/>
+    </inertial>
+  </link>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <!-- base_footprint 是地面参考点（z=0），base_link 抬高半个车身高度，
+         使车体底面贴地。 -->
+    <origin xyz="0 0 ${body_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== 左驱动轮 ===== -->
+  <!-- 圆柱默认轴线沿 Z；必须绕 X 转 90°，使圆柱侧躺、轴线沿 Y（车体左右方向），
+       才能以前后滚动方式行驶。origin 向下偏移 wheel_radius，使轮子底部贴地。 -->
+  <link name="left_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+      <material name="wheel_black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="${wheel_mass}"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <origin xyz="0 ${half_track} ${-wheel_radius}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="100" velocity="100"/>
+  </joint>
+
+  <!-- ===== 右驱动轮 ===== -->
+  <link name="right_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="${wheel_mass}"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <origin xyz="0 ${-half_track} ${-wheel_radius}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="100" velocity="100"/>
+  </joint>
+
+  <!-- ===== 前万向脚轮（摩擦球近似） ===== -->
+  <link name="front_caster">
+    <visual>
+      <geometry>
+        <sphere radius="0.03"/>
+      </geometry>
+      <material name="caster_dark_grey">
+        <color rgba="0.25 0.25 0.27 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <joint name="front_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_caster"/>
+    <!-- 脚轮中心放在 base_link 下方，使球底贴地（球半径 0.03，base_link 底面在 -body_height/2） -->
+    <origin xyz="${body_length/2 - 0.03} 0 ${-body_height/2 + 0.03}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== 后万向脚轮 ===== -->
+  <link name="rear_caster">
+    <visual>
+      <geometry>
+        <sphere radius="0.03"/>
+      </geometry>
+      <material name="caster_dark_grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <joint name="rear_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_caster"/>
+    <origin xyz="${-body_length/2 + 0.03} 0 ${-body_height/2 + 0.03}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== 激光雷达 ===== -->
+  <link name="base_scan">
+    <visual>
+      <geometry>
+        <cylinder radius="0.03" length="0.05"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <!-- 激光雷达统一为醒目红色 -->
+      <material name="lidar_red">
+        <color rgba="0.95 0.12 0.10 1.0"/>
+      </material>
+    </visual>
+    <!-- 注意：雷达 link 不加 <collision>。
+         ray sensor 从 link 中心发射射线，若有碰撞体，所有射线会先命中
+         自身（0.03m 处），近距离点被 SLAM 当成障碍物记进地图，
+         表现为走过的路径上出现"机身框"残影。 -->
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="base_scan_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_scan"/>
+    <!-- lidar_z 是相对于地面的高度，base_link 中心高度为 body_height/2 -->
+    <origin xyz="${lidar_x} 0 ${lidar_z - body_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== IMU（对齐 IMU-Sealand 真机：九轴、话题 /imu/data） ===== -->
+  <link name="imu_link">
+    <inertial>
+      <mass value="0.02"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="${imu_x} 0 ${imu_z - body_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== Gazebo 插件（仅仿真 sim_mode:=true 时启用） ===== -->
+  <xacro:if value="${sim_mode}">
+  <!-- Gazebo 渲染材质：Gazebo 11 对 URDF inline <color> 支持不稳定，
+       必须用 Gazebo 原生材质名才能在 3D 视图正确显示颜色 -->
+  <gazebo reference="base_link"><material>Gazebo/White</material></gazebo>
+  <gazebo reference="left_wheel"><material>Gazebo/Black</material></gazebo>
+  <gazebo reference="right_wheel"><material>Gazebo/Black</material></gazebo>
+  <gazebo reference="front_caster"><material>Gazebo/DarkGrey</material></gazebo>
+  <gazebo reference="rear_caster"><material>Gazebo/DarkGrey</material></gazebo>
+  <gazebo reference="base_scan"><material>Gazebo/Red</material></gazebo>
+
+  <!-- ===== Gazebo 差速驱动插件 ===== -->
+  <gazebo>
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+      <update_rate>30</update_rate>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${half_track * 2}</wheel_separation>
+      <wheel_diameter>${wheel_diameter}</wheel_diameter>
+      <max_wheel_torque>20</max_wheel_torque>
+      <max_wheel_acceleration>5.0</max_wheel_acceleration>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>true</publish_wheel_tf>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <command_topic>cmd_vel</command_topic>
+      <odometry_topic>odom</odometry_topic>
+    </plugin>
+  </gazebo>
+
+  <!-- ===== 激光雷达 Gazebo 插件 ===== -->
+  <gazebo reference="base_scan">
+    <sensor type="ray" name="lds_lfcd_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <!-- min 取 0.25m：雷达装在车头 (0.18, 0)，到车身最近角(前角)约
+               0.22m，0.25m 以内的命中只可能是机器人自身结构，直接丢弃，
+               防止自扫描点污染地图。 -->
+          <min>0.25</min>
+          <max>30.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </ray>
+      <plugin name="scan" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>base_scan</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ===== IMU Gazebo 插件（输出与 IMU-Sealand ROS 驱动一致的话题 /imu/data） ===== -->
+  <gazebo reference="imu_link">
+    <sensor type="imu" name="imu_sensor">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.001</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.001</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.001</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+      <plugin name="imu" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+    </sensor>
+  </gazebo>
+  </xacro:if>
+
+</robot>

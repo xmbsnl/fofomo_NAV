@@ -1,0 +1,11 @@
+bool online
+int16 rocker_left_x
+int16 rocker_left_y
+int16 rocker_right_x
+int16 rocker_right_y
+int16 round_left_vra
+int16 round_right_vrb
+uint8 key_swa
+uint8 key_swb
+uint8 key_swc
+uint8 key_swd

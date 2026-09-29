@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS 配置模板 —— 由 scripts/setup_dds.sh 渲染后写到 ~/cyclonedds.xml
+  不要直接改本文件（工作空间重新拷贝时会被覆盖）。
+
+  三条关键配置的理由：
+  1. <NetworkInterface name="__IFACE__">
+     工控机有 WiFi + 2 个 LAN + 4G，共 4 张网卡。DDS 默认只会挑一张，
+     挑错了两台机器就在不同网段上各自发现不到对方。必须显式指定。
+  2. <AllowMulticast>spdp</AllowMulticast>
+     只让"参与者发现"走多播，实际数据全部走单播。
+     WiFi 下多播通常被 AP 限速甚至丢弃，全量多播会导致 /scan 大量丢帧。
+  3. <FragmentSize>1300B</FragmentSize>
+     小于 WiFi MTU(1500) 减去 IP/UDP 头，让 CycloneDDS 自己做分片，
+     避免 IP 层分片 —— IP 分片丢一片整个消息就废了，在弱网下是灾难。
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="__IFACE__" priority="default" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
+      <FragmentSize>1300B</FragmentSize>
+      <Transport>udp</Transport>
+    </General>
+
+    <Discovery>
+      <Peers>
+        <Peer address="__PEER_IP__" />
+      </Peers>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
+    </Discovery>
+
+    <Internal>
+      <Watermarks>
+        <WhcHigh>500kB</WhcHigh>
+      </Watermarks>
+      <!-- 注意：不要在这里写 SockRcvBufferSize / SocketReceiveBufferSize。
+           ROS 2 Humble 自带的 CycloneDDS 不认识这个元素，会导致整个
+           DDS 域创建失败（rmw_create_node: failed to create domain），
+           表现为所有节点一起崩、ros2 topic 都用不了。 -->
+    </Internal>
+  </Domain>
+</CycloneDDS>

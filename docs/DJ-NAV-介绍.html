@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DJ-NAV 1.0 · DT-01 真机导航控制台</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --card: #1a2030;
+    --line: #2b3244;
+    --blue: #4da3ff;
+    --cyan: #2fd6c8;
+    --green: #4ade80;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --text: #e6edf3;
+    --muted: #8b96a8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  /* ---------- Header ---------- */
+  header {
+    background:
+      radial-gradient(ellipse 80% 60% at 70% -10%, rgba(77,163,255,.18), transparent),
+      radial-gradient(ellipse 60% 50% at 20% 0%, rgba(47,214,200,.12), transparent),
+      var(--bg);
+    border-bottom: 1px solid var(--line);
+    padding: 72px 0 56px;
+    text-align: center;
+  }
+  .badge-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
+  .badge {
+    font-size: 13px; padding: 4px 14px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); background: rgba(255,255,255,.03);
+  }
+  .badge.hl { color: var(--cyan); border-color: rgba(47,214,200,.4); }
+  h1 {
+    font-size: 52px; letter-spacing: 2px; font-weight: 800;
+    background: linear-gradient(92deg, #7ec3ff 0%, #2fd6c8 55%, #4ade80 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { margin-top: 14px; font-size: 19px; color: var(--text); font-weight: 500; }
+  .subtitle b { color: var(--blue); }
+  .tagline { margin-top: 10px; color: var(--muted); font-size: 15px; }
+
+  /* ---------- Sections ---------- */
+  section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+  section:last-of-type { border-bottom: none; }
+  .sec-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 3px; color: var(--cyan);
+    border: 1px solid rgba(47,214,200,.35); padding: 2px 12px; border-radius: 4px;
+    margin-bottom: 14px;
+  }
+  h2 { font-size: 30px; margin-bottom: 10px; }
+  .sec-desc { color: var(--muted); max-width: 760px; margin-bottom: 30px; }
+
+  /* ---------- Arch ---------- */
+  .arch { display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; align-items: stretch; }
+  .arch-box {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px;
+  }
+  .arch-box h3 { font-size: 16px; color: var(--blue); margin-bottom: 10px; }
+  .arch-box.remote h3 { color: var(--green); }
+  .arch-box ul { list-style: none; }
+  .arch-box li { padding: 5px 0; color: var(--text); font-size: 14.5px; }
+  .arch-box li::before { content: "▸ "; color: var(--cyan); }
+  .arch-mid { display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+  .flow {
+    text-align: center; font-size: 13px; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 8px; padding: 8px 4px;
+  }
+  .flow b { color: var(--amber); display: block; font-size: 14px; }
+
+  /* ---------- Cards ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 24px; transition: transform .15s, border-color .15s;
+  }
+  .card:hover { transform: translateY(-3px); border-color: rgba(77,163,255,.5); }
+  .card .icon { font-size: 26px; margin-bottom: 10px; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { color: var(--muted); font-size: 14.5px; }
+  .card p b { color: var(--text); }
+
+  /* ---------- Patrol steps ---------- */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 26px; }
+  .step {
+    background: linear-gradient(180deg, rgba(77,163,255,.08), rgba(77,163,255,.02));
+    border: 1px solid var(--line); border-radius: 12px; padding: 20px 18px; position: relative;
+  }
+  .step .num {
+    width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 16px; margin-bottom: 12px;
+    background: rgba(47,214,200,.15); color: var(--cyan); border: 1px solid rgba(47,214,200,.4);
+  }
+  .step h3 { font-size: 16px; margin-bottom: 6px; }
+  .step p { font-size: 13.5px; color: var(--muted); }
+
+  .route-demo {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 22px; margin-bottom: 26px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 14px; color: var(--muted);
+  }
+  .route-demo .ln { color: var(--cyan); }
+  .route-demo .pt { color: var(--red); font-weight: 700; }
+
+  /* ---------- Safety table ---------- */
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 13px 18px; text-align: left; font-size: 14.5px; border-bottom: 1px solid var(--line); }
+  th { background: rgba(77,163,255,.1); color: var(--blue); font-size: 13.5px; letter-spacing: 1px; }
+  td:first-child { color: var(--amber); white-space: nowrap; font-weight: 600; }
+  td:last-child { color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---------- Quick start ---------- */
+  .steps-flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 26px; }
+  .sf {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 16px; font-size: 14.5px;
+  }
+  .sf.go { border-color: rgba(74,222,128,.5); color: var(--green); }
+  .arr { color: var(--muted); }
+  pre {
+    background: #0a0e14; border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 22px; overflow-x: auto; font-size: 13.5px; line-height: 1.9;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  .cm { color: #6a737d; } .kw { color: var(--cyan); } .st { color: var(--green); }
+
+  /* ---------- FAQ ---------- */
+  .faq-item { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin-bottom: 12px; }
+  .faq-item b { color: var(--text); }
+  .faq-item p { color: var(--muted); font-size: 14.5px; margin-top: 4px; }
+
+  footer { padding: 36px 0 48px; text-align: center; color: var(--muted); font-size: 13.5px; }
+  footer .hl { color: var(--cyan); }
+
+  @media (max-width: 860px) {
+    .arch { grid-template-columns: 1fr; }
+    .arch-mid { flex-direction: row; }
+    .flow { flex: 1; }
+    .steps { grid-template-columns: 1fr 1fr; }
+    h1 { font-size: 38px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="badge-row">
+      <span class="badge hl">DT-01 差速底盘</span>
+      <span class="badge">RK3588 工控机</span>
+      <span class="badge">ROS 2 Humble</span>
+      <span class="badge">slam_toolbox · Nav2 · AMCL</span>
+    </div>
+    <h1>DJ-NAV 1.0</h1>
+    <div class="subtitle">DT-01 真机导航控制台 · <b>打点连线巡线</b></div>
+    <div class="tagline">画一条线，机器人就沿着这条线走 —— 先对正，再出发，严格走线，仅避障偏移</div>
+  </div>
+</header>
+
+<!-- ============ 架构 ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag">ARCHITECTURE</span>
+    <h2>真车安全架构</h2>
+    <p class="sec-desc">GUI 跑在笔记本上，本身不启动任何 ROS 进程：驱动、雷达、IMU、
+    安全层、建图/导航全部通过 SSH 在工控机上启停，GUI 只做监控与下发。
+    即使笔记本断网或崩溃，机器人也会安全停车。</p>
+
+    <div class="arch">
+      <div class="arch-box">
+        <h3>上位机 · GUI（笔记本）</h3>
+        <ul>
+          <li>地图显示 / 打点连线（PyQt5）</li>
+          <li>手动遥控 W/A/S/D → /cmd_vel_teleop</li>
+          <li>下发巡线路线 + 2Hz 心跳</li>
+          <li>电量 / 速度 / 网络 / 传感器监控</li>
+          <li>SSH 启停工控机整套系统</li>
+        </ul>
+      </div>
+      <div class="arch-mid">
+        <div class="flow"><b>SSH</b>启停 / 部署节点</div>
+        <div class="flow"><b>DDS ▶</b>路线 · 心跳 · 急停</div>
+        <div class="flow"><b>◀ DDS</b>位姿 · 激光 · 状态</div>
+      </div>
+      <div class="arch-box remote">
+        <h3>工控机 · RK3588（机器人本机）</h3>
+        <ul>
+          <li>底盘驱动 dt_ros2（/dev/ttyS7）</li>
+          <li>蓝海雷达 UDP + 飞迪 IMU 400Hz</li>
+          <li>EKF 融合 + safety_mux 安全仲裁</li>
+          <li>slam_toolbox 建图 / Nav2+AMCL 导航</li>
+          <li>route_follower 巡线节点（20Hz 闭环）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 巡线 ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag">ROUTE PATROL</span>
+    <h2>打点连线巡线 —— 核心工作模式</h2>
+    <p class="sec-desc">不再让导航算法自由规划路径。你在地图上打几个点，相邻点自动连成
+    最短直线，机器人严格沿这条线行驶；控制算法跑在工控机上的独立节点里，
+    笔记本断网 2 秒内自动停车。</p>
+
+    <div class="route-demo">
+      打点：<span class="pt">●</span>打点1 ──── <span class="pt">●</span>打点2 ──── <span class="pt">●</span>打点3<br>
+      显示：<span class="ln">━━━━━━━ 青色连线 = 机器人唯一可走的路 ━━━━━━━</span>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>打点连线</h3>
+        <p>地图上依次点击，相邻点自动连成最短直线，实时显示剩余路线，走过的段自动消失。</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>先对正，再出发</h3>
+        <p>每段出发前原地转向对正下一点（偏差 &lt;3.4° 才动车），绝不在到点后磨蹭调头。</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>严格走线</h3>
+        <p>Pure Pursuit 前视点追踪，横向跑偏被自动拉回画出的线，其他地方一律不走。</p>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <h3>仅避障偏线</h3>
+        <p>只有雷达前方 &lt;0.7m 有障碍才向空侧短暂偏移绕行，解除后自动回线。</p>
+      </div>
+    </div>
+
+    <table>
+      <tr><th>巡线参数</th><th>默认值</th><th>说明（可 ros2 param 在线调）</th></tr>
+      <tr><td>v_max</td><td>0.35 m/s</td><td>巡线速度，跟随 GUI 滑块，上限 0.5</td></tr>
+      <tr><td>k p_rot / kp_lat</td><td>1.6 / 2.2</td><td>原地对正 / 直线追踪 增益</td></tr>
+      <tr><td>min_w</td><td>0.12 rad/s</td><td>克服底盘静摩擦的最小转向速率</td></tr>
+      <tr><td>avoid_start / stop_dist</td><td>0.70 / 0.22 m</td><td>避障减速 / 停车距离</td></tr>
+      <tr><td>goal_timeout</td><td>90 s</td><td>单点超时自动跳过，继续后续点</td></tr>
+      <tr><td>hb_timeout</td><td>2.0 s</td><td>GUI 心跳超时，断链自动停车</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 功能全景 ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag">FEATURES</span>
+    <h2>全部功能</h2>
+    <p class="sec-desc">不止巡线 —— 从建图到监控到诊断，真机作业的完整工具链。</p>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">🗺️</div>
+        <h3>建图作业</h3>
+        <p>一键启动 SLAM，遥控绕场建图（≤0.3 m/s 走闭合回路）；「另存地图」保存到工控机并<b>自动镜像回本地</b>，保存前确认 SLAM 在跑，杜绝静默丢图。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🧭</div>
+        <h3>导航定位</h3>
+        <p>AMCL 定位三件套：<b>自动初始位姿</b>（按地图保存复用）、手动点选拖朝向、<b>全局定位</b>粒子重搜。附翻面检测，对称环境激光贴图左右反时主动告警。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🎮</div>
+        <h3>手动遥控</h3>
+        <p>界面按钮 + <b>全局键盘 WASD</b>（焦点在哪儿都生效，打字自动让路）；线速度 0.05~1.0 m/s / 角速度 0.1~2.0 rad/s 滑块实时调；经安全层限速透传。</p>
+      </div>
+      <div class="card">
+        <div class="icon">📡</div>
+        <h3>传感器监控</h3>
+        <p>雷达实时叠加地图（TF 自动纠正安装偏转）、超声×6 / IMU / RGB-D 状态；<b>8 方位障碍分析</b>给出驾驶建议（"前方受阻，左侧畅通 → 建议左转绕行"）。面板可弹出独立窗口。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔋</div>
+        <h3>状态监控</h3>
+        <p>电量（电压/百分比/充放状态）、底盘心跳（模式/速度/急停标志/错误码）、网络状态、实时速度——提到面板<b>最顶部</b>，开车时一眼可见。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🗂️</div>
+        <h3>多地图管理</h3>
+        <p>首次连通<b>自动同步</b>工控机地图到本地镜像；初始位姿按地图分别保存、长期复用；切图强制重启导航栈换图，防止新旧图坐标系错位。</p>
+      </div>
+      <div class="card">
+        <div class="icon">📋</div>
+        <h3>日志系统</h3>
+        <p>显示截断但内部保留<b>完整原文</b>，「复制全部」拿到未截断内容；复制/选中复制/清空/放大还原，日志区高度自动记忆。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔍</div>
+        <h3>链路诊断</h3>
+        <p>只认"最近 3 秒有没有真数据"，不信"话题存在"；启动预热自动重查不误报；连不上给<b>按序排查清单</b>；SSH 慢命令与等锁时间自动记录。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔁</div>
+        <h3>启停管理</h3>
+        <p>「启动机器人」带<b>接管探测</b>（车上在跑就不重启，防丢图防双进程）；「断开连接」优雅停→强杀→<b>杀完复查</b>；孤儿进程自动探测提醒清理。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 安全 ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag" style="color:var(--red); border-color:rgba(248,113,113,.4);">SAFETY</span>
+    <h2>六层安全防护</h2>
+    <p class="sec-desc">真车第一。每一层都独立生效，任何一层都可以把车停下来。</p>
+    <table>
+      <tr><th>防护层</th><th>机制</th></tr>
+      <tr><td>底盘仲裁</td><td>全部运动指令经 safety_mux：急停 / 防撞 / 激光急停常生效。巡线走 /cmd_vel_nav、遥控走 /cmd_vel_teleop，绝不直发 /cmd_vel</td></tr>
+      <tr><td>断链保护</td><td>GUI 以 2Hz 发心跳，工控机侧节点 2 秒收不到 → 自动零速停车（WiFi 断、GUI 崩溃均覆盖）</td></tr>
+      <tr><td>全局急停</td><td>顶栏红色 E-STOP 或键盘 X：取消导航 + 清空队列 + 立即零速，任何时刻可用</td></tr>
+      <tr><td>定位翻面检测</td><td>设初始位姿 4s 后核对 AMCL：跳走 &gt;0.6m 或翻转 &gt;60° 立即告警（对称环境镜像解）</td></tr>
+      <tr><td>切图防护</td><td>切换地图强制重启导航栈换图，杜绝"车按旧图匹配、人按新图打点"的坐标系错位</td></tr>
+      <tr><td>打点防护</td><td>地图外 / 障碍 / 未知区域的点击自动拒绝，从源头避免不可达目标</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 快速上手 ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag">QUICK START</span>
+    <h2>快速上手</h2>
+    <div class="steps-flow">
+      <span class="sf">启动机器人</span><span class="arr">→</span>
+      <span class="sf">建图模式</span><span class="arr">→</span>
+      <span class="sf">另存地图</span><span class="arr">→</span>
+      <span class="sf">导航模式</span><span class="arr">→</span>
+      <span class="sf">设定初始位姿</span><span class="arr">→</span>
+      <span class="sf">打点连线</span><span class="arr">→</span>
+      <span class="sf go">▶ 开始巡线</span>
+    </div>
+<pre>
+<span class="cm"># 前置（一次性）：免密登录工控机</span>
+ssh-keygen -t ed25519 && ssh-copy-id teamhd@192.168.2.153
+
+<span class="cm"># 启动控制台</span>
+<span class="kw">bash</span> run.sh
+
+<span class="cm"># 巡线参数在线调整（工控机上执行）</span>
+ros2 param set /route_follower v_max <span class="st">0.30</span>     <span class="cm"># 巡线速度</span>
+ros2 param set /route_follower kp_rot <span class="st">2.0</span>     <span class="cm"># 原地对正增益</span>
+</pre>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section>
+  <div class="wrap">
+    <span class="sec-tag">FAQ</span>
+    <h2>常见问题</h2>
+    <div class="faq-item">
+      <b>Q：激光贴图左右反了？</b>
+      <p>长走廊等对称环境下 AMCL 收敛到镜像解。重新「设定初始位姿」（车头朝向指对）或点「全局定位」，日志会主动提示翻面告警。</p>
+    </div>
+    <div class="faq-item">
+      <b>Q：切换地图后定位乱？</b>
+      <p>切图会强制重启车上导航栈换图（约 30~60s 预热），预热完成后再定位即可。</p>
+    </div>
+    <div class="faq-item">
+      <b>Q：点了开始导航但机器人不动？</b>
+      <p>看日志是否有"巡线节点无回报"：查工控机 /tmp/dt01_route_follower.log；确认初始位姿已设定、地图上无红色翻面告警。</p>
+    </div>
+    <div class="faq-item">
+      <b>Q：巡线时原地转向不动 / 太猛？</b>
+      <p>在线调参：min_w 加大（转不动）或 kp_rot 减小（太猛），无需重启。</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    DJ-NAV 1.0 · DT-01 真机导航控制台 &nbsp;|&nbsp; 打点连线巡线 · 建图导航一体 · 真车安全架构<br><br>
+    <span class="hl">研发：fofomo</span> &nbsp;·&nbsp; 2026-09
+  </div>
+</footer>
+
+</body>
+</html>

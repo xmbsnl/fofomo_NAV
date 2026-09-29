@@ -1,0 +1,9 @@
+uint8 major
+uint8 minor
+uint8 revision
+uint8 reserved
+uint8 year
+uint8 month
+uint8 day
+uint8 other
+uint8[8] version

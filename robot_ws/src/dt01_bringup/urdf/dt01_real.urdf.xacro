@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!--
+  DT-01 真机模型入口（无 Gazebo 插件，仅模型与 TF）。
+  用法：xacro urdf/dt01_real.urdf.xacro
+  由 launch/dt01_bringup.launch.py 自动加载。
+-->
+<robot name="dt01" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 覆盖 dt01.urdf.xacro 的 sim_mode 默认值 → 关闭 Gazebo 插件 -->
+  <xacro:property name="sim_mode" value="false"/>
+
+  <xacro:include filename="dt01.urdf.xacro"/>
+
+</robot>

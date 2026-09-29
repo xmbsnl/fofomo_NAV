@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dt01_bringup</name>
+  <version>2.0.0</version>
+  <description>
+    DT-01 真机整合包：驱动三件套(dt_ros2/bluesea2/fdilink_ahrs) + URDF静态TF
+    + EKF里程计融合 + 安全指令仲裁 + 底盘遥测桥 + 多机通信配置 + 数据链路体检
+  </description>
+  <maintainer email="dev@dt01.local">DT01 Developer</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 本包自己的 Python 节点依赖 -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+
+  <!-- 驱动三件套（厂家提供） -->
+  <exec_depend>dt_ros2</exec_depend>
+  <exec_depend>robot_ros2_msgs</exec_depend>
+  <exec_depend>bluesea2</exec_depend>
+  <exec_depend>fdilink_ahrs</exec_depend>
+
+  <!-- 通用 ROS2 组件 -->
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>teleop_twist_keyboard</exec_depend>
+
+  <!-- 里程计融合 -->
+  <exec_depend>robot_localization</exec_depend>
+
+  <!-- 建图与导航（跑在工控机上时必需） -->
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_smoother</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_costmap_2d</exec_depend>
+
+  <!-- 可视化（上位机侧） -->
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>tf2_tools</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
