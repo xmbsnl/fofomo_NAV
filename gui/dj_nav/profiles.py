@@ -21,6 +21,9 @@ SAVED_MAPS_DIR = os.path.join(MAPS_DIR, 'saved')
 # 点位文件：真机地图的打点坐标（与仿真完全不同坐标系，本版本无仿真）
 POINTS_FILE = os.path.join(BASE_DIR, 'config', 'nav_points.json')
 
+# 电子围栏文件：按地图分组的禁区多边形（GUI 画图生成，下发到工控机巡线节点）
+KEEPOUT_FILE = os.path.join(BASE_DIR, 'config', 'keepout_zones.json')
+
 
 class RealProfile:
     """真机档案：连工控机（SSH 启停 + DDS 监控与下发）。"""
@@ -32,6 +35,9 @@ class RealProfile:
 
     # 点位文件：真机地图的打点坐标
     points_file = POINTS_FILE
+
+    # 电子围栏文件：按地图分组的禁区多边形
+    keepout_file = KEEPOUT_FILE
 
     # 遥控话题：必须走 /cmd_vel_teleop —— 真机的 /cmd_vel 是 safety_mux
     # 的独占输出，直接发会绕过急停/防撞/激光急停，还会和 Nav2 抢底盘。

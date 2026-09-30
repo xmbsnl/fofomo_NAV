@@ -24,6 +24,8 @@ class OverlayItem(QGraphicsItem):
         self.scan_points = []       # [(x, y), ...] 世界坐标
         self.route_points = []      # 巡线路线（打点连线）：[(x, y), ...]
         self.path_points = []       # [(x, y), ...]
+        self.keepout_zones = []     # 电子围栏禁区：[[(x,y),...], ...] 多边形列表
+        self.keepout_draft = []     # 正在绘制的禁区草稿顶点 [(x,y), ...]
 
     def boundingRect(self):
         return QRectF(-1e4, -1e4, 2e4, 2e4)
@@ -49,9 +51,10 @@ class OverlayItem(QGraphicsItem):
     def paint(self, painter, option, widget=None):
         px = self._px(painter)
 
-        # ---- 巡线路线（青色粗线：打点之间的最短直线，机器人严格沿线行驶）----
+        # ---- 巡线路线（青色：打点之间的最短直线，机器人严格沿线行驶）----
+        # 09-29 调细：1.4 → 1.0（用户反馈线条偏粗，淹没点位标记）
         if len(self.route_points) >= 2:
-            pen = self._safe_pen(QColor(0, 190, 255), px * 1.4)
+            pen = self._safe_pen(QColor(0, 190, 255), px * 1.0)
             pen.setCapStyle(Qt.RoundCap)
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
@@ -60,9 +63,39 @@ class OverlayItem(QGraphicsItem):
                 route.lineTo(QPointF(*p))
             painter.drawPath(route)
 
-        # ---- 规划路径（亮绿细线）----
+        # ---- 电子围栏禁区：淡红底 + 点阵纹理（明确标记为禁入区）+ 细边框 ----
+        # 09-29：边框再细一档（0.9 → 0.55），内部加 Dense6 纹理强化"禁入"语义
+        for poly in self.keepout_zones:
+            if len(poly) < 3:
+                continue
+            qpoly = QPolygonF([QPointF(*p) for p in poly])
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor(255, 60, 60, 38)))
+            painter.drawPolygon(qpoly)
+            painter.setBrush(QBrush(QColor(255, 60, 60, 95), Qt.Dense6Pattern))
+            painter.drawPolygon(qpoly)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(self._safe_pen(QColor(255, 70, 70), px * 0.55))
+            painter.drawPolygon(qpoly)
+
+        # ---- 正在绘制的禁区草稿（红色虚线 + 顶点，与正式禁区同档细线）----
+        if self.keepout_draft:
+            painter.setBrush(Qt.NoBrush)
+            if len(self.keepout_draft) >= 2:
+                painter.setPen(self._safe_pen(QColor(255, 130, 130), px * 0.7,
+                                              Qt.DashLine))
+                draft = QPainterPath(QPointF(*self.keepout_draft[0]))
+                for p in self.keepout_draft[1:]:
+                    draft.lineTo(QPointF(*p))
+                painter.drawPath(draft)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor(255, 130, 130)))
+            for p in self.keepout_draft:
+                painter.drawEllipse(QPointF(*p), px * 2.0, px * 2.0)
+
+        # ---- 规划路径（亮绿细线，09-29 调细：0.6 → 0.5）----
         if len(self.path_points) >= 2:
-            pen = self._safe_pen(QColor(60, 220, 100), px * 0.6)
+            pen = self._safe_pen(QColor(60, 220, 100), px * 0.5)
             pen.setCapStyle(Qt.RoundCap)
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
@@ -129,6 +162,56 @@ class FlagMarkItem(QGraphicsItem):
             font.setBold(True)
             painter.setFont(font)
             painter.drawText(QPointF(10, -4), self.name)
+
+
+class PoseArrowItem(QGraphicsItem):
+    """初始位姿 / 拖拽预览标记：单个大箭头（屏幕恒定大小）。
+
+    2026-09-29 用户反馈：旧旗帜标记元素多（旗面+底盘圆点+小箭头）且小，
+    拖拽定位时看不清、对齐初始位置操作成本高 —— 改为单个粗箭头+白描边，
+    箭头中心即位姿点，任何缩放级别下清晰可辨。
+    蓝=初始位姿  黄=拖拽预览
+    """
+
+    def __init__(self, color, name=''):
+        super().__init__()
+        self.setZValue(25)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.color = color
+        self.name = name
+        self.yaw = 0.0
+
+    def boundingRect(self):
+        return QRectF(-27, -27, 62, 62)
+
+    def paint(self, painter, option, widget=None):
+        painter.save()
+        # item 坐标 y 向下：世界 yaw 逆时针为正 → 画布需顺时针旋转（取负）
+        painter.rotate(-math.degrees(self.yaw))
+        # 单个大箭头（朝 +x，中心=位姿点）：总长 34px、头宽 22px，
+        # 约为旧朝向线（12px）的 3 倍；纯箭头一个图元，无圆点/旗面混杂
+        L, HW, SW = 34, 11, 5        # 总长 / 头半宽 / 杆半宽
+        arrow = QPolygonF([
+            QPointF(L, 0),
+            QPointF(L - 15, -HW),
+            QPointF(L - 15, -SW),
+            QPointF(-L + 8, -SW),
+            QPointF(-L + 8, SW),
+            QPointF(L - 15, SW),
+            QPointF(L - 15, HW),
+        ])
+        # 白描边底：深灰/浅白地图背景上都醒目
+        painter.setPen(QPen(QColor(255, 255, 255), 3))
+        painter.setBrush(QBrush(self.color))
+        painter.drawPolygon(arrow)
+        painter.restore()
+        if self.name:
+            painter.setPen(self.color)
+            font = QFont()
+            font.setPointSize(8)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QPointF(-8, 26), self.name)
 
 
 class RobotMarkItem(QGraphicsItem):
@@ -262,10 +345,13 @@ class MapView(QGraphicsView):
     # 点选落在障碍/未知区域被拒绝（2026-09-28：目标不可达会触发
     # "卡住→旋转恢复→定位甩飞"的失控链，从源头拦截）
     pick_blocked = pyqtSignal()
+    # 禁区绘制完成：闭合多边形的顶点列表 [(x,y), ...]（世界坐标）
+    keepout_drawn = pyqtSignal(list)
 
     MODE_PAN = 'pan'
     MODE_SET_POSE = 'set_pose'
     MODE_SET_GOAL = 'set_goal'
+    MODE_DRAW_KEEPOUT = 'draw_keepout'
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -288,11 +374,14 @@ class MapView(QGraphicsView):
         self._scene.addItem(self.overlay)
         self._waypoint_items = {}
         self._queue_items = []
-        # 标记类图元（屏幕恒定大小，与队列打点同款样式）：先隐藏，有数据才显示
+        self._keepout_draft = []    # 正在绘制的禁区顶点（世界坐标）
+        # 标记类图元（屏幕恒定大小）：先隐藏，有数据才显示
+        # 初始位姿/拖拽预览用单大箭头（09-29 识辨识度改进）；
+        # 当前导航目标保留旗帜样式以示区分
         self._robot_mark = RobotMarkItem()
-        self._init_mark = FlagMarkItem('初始', QColor(80, 140, 255))
+        self._init_mark = PoseArrowItem(QColor(80, 140, 255), '初始')
         self._goal_mark = FlagMarkItem('目标', QColor(60, 220, 100))
-        self._preview_mark = FlagMarkItem('', QColor(255, 210, 60))
+        self._preview_mark = PoseArrowItem(QColor(255, 210, 60))
         for it in (self._robot_mark, self._init_mark,
                    self._goal_mark, self._preview_mark):
             it.setVisible(False)
@@ -314,9 +403,18 @@ class MapView(QGraphicsView):
         if mode == self.MODE_PAN:
             self.setDragMode(QGraphicsView.ScrollHandDrag)
             self.viewport().unsetCursor()
+        elif mode == self.MODE_DRAW_KEEPOUT:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.viewport().setCursor(Qt.CrossCursor)
         else:
             self.setDragMode(QGraphicsView.NoDrag)
             self.viewport().setCursor(Qt.CrossCursor)
+        # 任何模式切换都丢弃未闭合的禁区草稿。以前只在"进入绘制模式"时清，
+        # 中途退出（再点「＋禁区」/切到设位姿/打点）会把已画的顶点留在地图上，
+        # 看起来就是一块"清不掉的禁区标志"（2026-09-29 用户反馈）。
+        if mode != self.MODE_DRAW_KEEPOUT and self._keepout_draft:
+            self._keepout_draft = []
+            self.overlay.keepout_draft = []
         self.overlay.update()
 
     # ================= 地图 =================
@@ -393,6 +491,11 @@ class MapView(QGraphicsView):
         occ_grid = np.full((h, w), -1, dtype=np.int16)
         occ_grid[occupancy <= info['free_thresh'] * 100.0] = 0
         occ_grid[occupancy >= info['occupied_thresh'] * 100.0] = 100
+        # PGM 第 0 行是图片顶部（y 最大），而 /map 话题的 OccupancyGrid
+        # 第 0 行是 y 最小 —— 统一翻转成 ROS 约定（行 0 = y 最小），
+        # 保证 _blocked_at 点选校验与激光精修匹配两条加载路径方向一致。
+        # （修复：此前文件加载的地图上，点选校验/禁区判断上下镜像。）
+        occ_grid = np.flipud(occ_grid)
         self._occ_grid = occ_grid
         self._occ_ox, self._occ_oy, self._occ_res = ox, oy, res
         img = np.full((h, w), 60, dtype=np.uint8)          # 中间灰度 → 未知 深灰
@@ -454,6 +557,23 @@ class MapView(QGraphicsView):
             self.overlay.route_points = pts
             self.overlay.update()
 
+    def set_keepout_zones(self, zones):
+        """设置电子围栏禁区显示：zones 为 [{'name','points':[[x,y],...]}, ...]。
+
+        无条件赋值 + 重绘：清空（传入空列表）时也必须刷新，
+        否则"有→空"的比较在某些时序下会漏掉重绘。
+        """
+        polys = []
+        for z in zones:
+            try:
+                pts = [(float(p[0]), float(p[1])) for p in z.get('points', [])]
+            except Exception:
+                continue
+            if len(pts) >= 3:
+                polys.append(pts)
+        self.overlay.keepout_zones = polys
+        self.overlay.update()
+
     def set_goal_arrow(self, arrow):
         """当前导航目标标记：None 隐藏，(x, y, yaw) 显示绿色小旗。"""
         if arrow is None:
@@ -510,6 +630,16 @@ class MapView(QGraphicsView):
         if self.mode == self.MODE_PAN:
             super().mousePressEvent(event)
             return
+        if self.mode == self.MODE_DRAW_KEEPOUT:
+            sp = self.mapToScene(event.pos())
+            if event.button() == Qt.LeftButton:
+                self._keepout_draft.append((sp.x(), sp.y()))
+                self.overlay.keepout_draft = self._keepout_draft
+                self.overlay.update()
+            elif event.button() == Qt.RightButton:
+                self._close_keepout_draft()
+            event.accept()
+            return
         if event.button() == Qt.LeftButton:
             self._press_pos = self.mapToScene(event.pos())
             self._preview_mark.setVisible(False)
@@ -520,6 +650,9 @@ class MapView(QGraphicsView):
         self.mouse_moved.emit(sp.x(), sp.y())
         if self.mode == self.MODE_PAN:
             super().mouseMoveEvent(event)
+            return
+        if self.mode == self.MODE_DRAW_KEEPOUT:
+            event.accept()
             return
         if self._press_pos is not None:
             # 拖拽预览：黄色小旗（与打点同款样式），跟随拖拽向量指示朝向
@@ -534,6 +667,9 @@ class MapView(QGraphicsView):
     def mouseReleaseEvent(self, event):
         if self.mode == self.MODE_PAN:
             super().mouseReleaseEvent(event)
+            return
+        if self.mode == self.MODE_DRAW_KEEPOUT:
+            event.accept()
             return
         if event.button() == Qt.LeftButton and self._press_pos is not None:
             sp = self.mapToScene(event.pos())
@@ -566,6 +702,24 @@ class MapView(QGraphicsView):
         if not (0 <= gx < w and 0 <= gy < h):
             return True
         return int(self._occ_grid[gy, gx]) != 0
+
+    def occ_grid_snapshot(self):
+        """返回 (占据栅格, 原点x, 原点y, 分辨率)；地图未加载返回 None。
+
+        供初始位姿激光精修（pose_refiner）使用，
+        栅格约定与 /map 话题一致：行 0 = y 最小，0=空闲 >50=障碍 -1=未知。
+        """
+        if self._occ_grid is None:
+            return None
+        return (self._occ_grid, self._occ_ox, self._occ_oy, self._occ_res)
+
+    def _close_keepout_draft(self):
+        """闭合禁区草稿：>=3 点则发出 keepout_drawn，否则丢弃。"""
+        if len(self._keepout_draft) >= 3:
+            self.keepout_drawn.emit(list(self._keepout_draft))
+        self._keepout_draft = []
+        self.overlay.keepout_draft = []
+        self.overlay.update()
 
 
 # ================================================== 地图文件解析

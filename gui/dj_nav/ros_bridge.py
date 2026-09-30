@@ -156,6 +156,8 @@ class RosBridge(Node):
         self.route_goal_pub = self.create_publisher(Path, '/dt01/route/goal', 10)
         self.route_ctrl_pub = self.create_publisher(String, '/dt01/route/ctrl', 10)
         self.route_hb_pub = self.create_publisher(String, '/dt01/route/heartbeat', 10)
+        self.route_keepout_pub = self.create_publisher(
+            String, '/dt01/route/keepout', 10)
         _subscribe_raw(String, '/dt01/route/status', self._on_route_status, 10)
 
         # ---- 链路心跳（真机：判断工控机数据有没有真的过来）----
@@ -567,6 +569,15 @@ class RosBridge(Node):
         m = String()
         m.data = 'hb'
         self.route_hb_pub.publish(m)
+
+    def send_keepout(self, zones):
+        """下发电子围栏禁区列表：[{'name','points':[[x,y],...]}, ...]
+
+        节点侧幂等：运行中收到会整体替换当前禁区集合。
+        """
+        m = String()
+        m.data = json.dumps(zones, ensure_ascii=False)
+        self.route_keepout_pub.publish(m)
 
     def _on_route_status(self, msg: String):
         """解析 route_follower 的 JSON 进度回报，转发给 GUI。"""

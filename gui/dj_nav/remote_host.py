@@ -483,6 +483,32 @@ if (%(alive)s); then echo STILL_ALIVE; else echo STOPPED; fi
                   "pkill -KILL -f '%s' 2>/dev/null; true" % (pat, pat),
                   timeout=10, retry_on_timeout=False)
 
+    # ------------------------------------------------------------------ 参数
+    def ros_param_set(self, node, name, value):
+        """在工控机上执行 `ros2 param set`，动态调整运行中节点的参数。
+
+        node 形如 '/route_follower'、'/controller_server'、'/amcl'；
+        name 形如 'v_max'、'FollowPath.max_vel_x'（yaml 嵌套用点号）。
+        返回 (bool, 说明)。参数多为 Nav2 动态参数，set 后即时生效，无需重启。
+
+        ⚠️ retry_on_timeout=False：ros2 param set 有副作用，超时重试会
+        重复设置；与 start()/stop() 同一约定。
+        """
+        node = node.lstrip('/')
+        if isinstance(value, float):
+            value = f'{value:.6g}'
+        inner = (
+            "source /opt/ros/humble/setup.bash && "
+            "export ROS_DOMAIN_ID=42 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp "
+            "CYCLONEDDS_URI=file:///home/%s/cyclonedds.xml && "
+            "ros2 param set /%s %s %s" % (self.user, node, name, value)
+        )
+        rc, out, err = self._ssh(inner, timeout=15, retry_on_timeout=False)
+        if rc != 0:
+            return False, (err or out or 'SSH 失败').strip()
+        # 成功时 ros2 param set 输出 "Set parameter successful"
+        return True, (out or '参数已设置')
+
     # ------------------------------------------------------------------ 地图
     def ensure_maps_dir(self):
         """确保工控机上的地图目录存在（slam_toolbox 不会自己建目录）。"""

@@ -74,7 +74,10 @@ def generate_launch_description():
             'dt_baudrate': chassis_baud,
             'dt_odom_enable': True,
             'dt_drive_type': drive_type,
-            'dt_log_display': True,
+            # 09-30：关掉厂商驱动的控制台轮询打印。它按自己的频率往终端
+            # 刷里程计/状态文本，RK3588 上实测白吃 ~5-10% CPU，还冲掉
+            # 其他节点真正有用的日志。排查驱动时临时改回 True。
+            'dt_log_display': False,
             'dt_original_display': False,
         }],
         remappings=[

@@ -39,6 +39,8 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
 
 from .map_view import MapView
 from .sensor_panel import SensorPanel
+from .tuning_panel import TuningPanel
+from .pose_refiner import refine_pose
 from .profiles import BASE_DIR, MAPS_DIR, SAVED_MAPS_DIR, REAL
 from .remote_host import RemoteHost
 
@@ -150,6 +152,9 @@ class MainWindow(QMainWindow):
         self.log_signal.connect(self._log_impl)
         self._log_full = []
         self._all_points = {}        # {'地图名': [点位...]} 持久化存储
+        # 电子围栏：{'地图名': [{'name','points':[[x,y],...]}, ...]} 持久化
+        self._all_keepout = {}
+        self._keepout_zones = []     # 当前地图的禁区列表（下发/打点拦截用）
         # 打点任务队列（提前打点 → 开始导航顺序执行 → 停止导航随时急停）
         self._nav_queue = []
         self._queue_idx = 0
@@ -493,6 +498,7 @@ class MainWindow(QMainWindow):
         self.map_view.pick_rejected.connect(self._on_pick_rejected)
         self.map_view.pick_blocked.connect(self._on_pick_blocked)
         self.map_view.mouse_moved.connect(self._on_mouse_moved)
+        self.map_view.keepout_drawn.connect(self._on_keepout_drawn)
         self.map_view.setMinimumWidth(180)
         splitter.addWidget(self.map_view)
 
@@ -531,6 +537,17 @@ class MainWindow(QMainWindow):
         self.right_tabs.addTab(self.sensor_scroll, '传感器')
         self.sensor_win = None      # 弹出后的独立窗口（None = 内嵌在标签页）
         self.sensor_panel.popout_requested.connect(self._toggle_sensor_popout)
+
+        # 调参页：现场调巡线/Nav2 参数（点「设」经 SSH 下发 ros2 param set）
+        self.tuning_panel = TuningPanel()
+        self.tuning_scroll = QScrollArea()
+        self.tuning_scroll.setWidgetResizable(True)
+        self.tuning_scroll.setFrameShape(QFrame.NoFrame)
+        self.tuning_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tuning_scroll.setWidget(self.tuning_panel)
+        self.right_tabs.addTab(self.tuning_scroll, '调参')
+        self.tuning_panel.param_set_requested.connect(self._on_param_set_requested)
+
         splitter.addWidget(self.right_tabs)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
@@ -685,6 +702,20 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.btn_stop_nav)
         v.addLayout(row2)
 
+        # 行3：电子围栏（在地图上画多边形禁区，巡线时自动避开）
+        row3 = QHBoxLayout()
+        self.btn_draw_keepout = QPushButton('＋禁区')
+        self.btn_draw_keepout.setCheckable(True)
+        self.btn_draw_keepout.setToolTip('进入禁区绘制模式：左键逐点添加，右键闭合（≥3 点）')
+        self.btn_draw_keepout.clicked.connect(self._toggle_draw_keepout)
+        row3.addWidget(self.btn_draw_keepout)
+        self.btn_clear_keepout = QPushButton('清空禁区')
+        self.btn_clear_keepout.setObjectName('danger')
+        self.btn_clear_keepout.setToolTip('删除当前地图的全部禁区')
+        self.btn_clear_keepout.clicked.connect(self._clear_keepout)
+        row3.addWidget(self.btn_clear_keepout)
+        v.addLayout(row3)
+
         # 任务队列
         self.lbl_queue = QLabel('任务队列（相邻点自动连线，开始后沿连线行驶）：')
         v.addWidget(self.lbl_queue)
@@ -747,6 +778,24 @@ class MainWindow(QMainWindow):
         g.addWidget(QLabel('底盘'), 4, 0); g.addWidget(self.st_chassis, 4, 1)
         g.addWidget(QLabel('网络'), 5, 0); g.addWidget(self.st_network, 5, 1)
         return box
+
+    # ================================================== 调参下发
+    def _on_param_set_requested(self, node, name, value):
+        """调参面板点「设」：后台 SSH 在工控机上执行 ros2 param set。"""
+        if not self.remote:
+            self.log(f'调参：未连接工控机，无法下发 {node} {name}')
+            return
+        self.log(f'调参：下发 {node} {name} = {value:g} …')
+        self._remote_task(
+            lambda: self.remote.ros_param_set(node, name, value),
+            lambda r: self._on_param_set_done(node, name, r))
+
+    def _on_param_set_done(self, node, name, result):
+        ok, msg = (result if isinstance(result, tuple) else (False, str(result)))
+        if ok:
+            self.log(f'调参：{node} {name} 已设置（{msg}）')
+        else:
+            self.log(f'调参失败：{node} {name} —— {msg}')
 
     # ================================================== 数据准入门控
     def _data_allowed(self):
@@ -1187,6 +1236,7 @@ class MainWindow(QMainWindow):
             self._arm_pose_check(x, y, yaw)
             self.log(f'已用保存的初始位姿定位 ({x:.2f}, {y:.2f})'
                      f'（如需重新定位请点"设定初始位姿"或"全局定位"）')
+            self._auto_refine_pose()
             return
         odom = self.bridge.get_robot_odom_pose()
         if odom is not None:
@@ -1232,6 +1282,93 @@ class MainWindow(QMainWindow):
             self.log(f'已保存初始位姿 → {os.path.relpath(path, BASE_DIR)}')
         except Exception as e:
             self.log(f'保存初始位姿失败: {e}')
+
+    # ================================================== 初始位姿自动精修
+    def _auto_refine_pose(self):
+        """设定初始位姿后自动做一次「激光-地图」匹配精修。
+
+        手动点选再准也有 ±0.3m/±15° 的误差，对称环境 AMCL 还可能收敛到
+        镜像解。这里发完初始位姿等 1.5s（AMCL 发布 map->odom 后），取一帧
+        激光按当前位姿转成世界点，在 ±1.2m/±50° 范围内搜索最优刚体修正
+        （pose_refiner.refine_pose，后台线程），命中后把修正位姿重发
+        /initialpose —— 用户只需指个大概，剩下的交给匹配。
+        """
+        self._refine_seq = getattr(self, '_refine_seq', 0) + 1
+        seq = self._refine_seq
+        QTimer.singleShot(1500, lambda: self._start_pose_refine(seq))
+
+    def _start_pose_refine(self, seq, _tf_attempt=0):
+        """采集匹配所需数据（主线程），把重计算丢进后台线程。"""
+        if seq != self._refine_seq or self.current_mode != 'navigation':
+            return          # 用户又重新设定了位姿 / 已退出导航模式：作废
+        scan = self.bridge._latest_scan
+        if scan is None:
+            self.log('自动精修：暂无雷达数据，跳过')
+            return
+        lin, ang = self.bridge._odom_vel
+        if abs(lin) > 0.05 or abs(ang) > 0.05:
+            self.log('自动精修：机器人在运动，跳过（静止后重新设定一次即可）')
+            return
+        # 雷达帧位姿（TF map->laser，含安装偏转）：激光点就是按它转成世界系的。
+        # 刚切地图/启动后 TF 缓存未填充 → 查不到是暂态，重试 3 次（2s 间隔）
+        # 而不是直接放弃（09-30 实测：每次切图后第一次设位姿必报 TF 不可用）。
+        laser = self.bridge.scan_frame_transform(scan.header.frame_id)
+        if laser is None:
+            if _tf_attempt < 3:
+                QTimer.singleShot(
+                    2000, lambda: self._start_pose_refine(seq, _tf_attempt + 1))
+            else:
+                self.log('自动精修：雷达 TF 持续不可用，跳过')
+            return
+        pts = self.bridge.scan_to_points(scan, laser)
+        if len(pts) < 100:
+            self.log(f'自动精修：有效激光点太少（{len(pts)}），跳过')
+            return
+        snap = self.map_view.occ_grid_snapshot()
+        if snap is None:
+            self.log('自动精修：地图占据栅格未就绪，跳过')
+            return
+        grid, ox, oy, res = snap
+        self.log(f'自动精修：{len(pts)} 个激光点正在匹配地图…')
+        self._remote_task(lambda: refine_pose(pts, grid, ox, oy, res),
+                          lambda r: self._on_pose_refined(seq, r))
+
+    def _on_pose_refined(self, seq, result):
+        """精修完成（主线程）：把修正量作用到机器人位姿并重发 /initialpose。"""
+        if seq != self._refine_seq:
+            return
+        if not isinstance(result, dict):
+            self.log(f'自动精修异常: {result}')
+            return
+        if not result.get('ok'):
+            if result.get('reason'):
+                self.log('自动精修：' + result['reason'])
+            return
+        dx, dy, dyaw = result['correction']
+        if (abs(dx) < 0.01 and abs(dy) < 0.01
+                and abs(dyaw) < math.radians(0.5)):
+            self.log(f'自动精修：激光已与地图贴合'
+                     f'（残差 {result["score_before"] * 100:.0f}cm），无需修正')
+            return
+        # 修正量是 map 系刚体变换：对当前位姿整体作用后重发
+        base = self.bridge.get_robot_pose()
+        if base is None:
+            self.log('自动精修完成，但定位不可用，未重发')
+            return
+        bx, by, byaw = base
+        c, s = math.cos(dyaw), math.sin(dyaw)
+        nx = c * bx - s * by + dx
+        ny = s * bx + c * by + dy
+        nyaw = math.atan2(math.sin(byaw + dyaw), math.cos(byaw + dyaw))
+        self.bridge.publish_initial_pose(nx, ny, nyaw)
+        self.map_view.set_init_arrow((nx, ny, nyaw))
+        # 精修位姿作为新的基准：保存复用 + 以它为准核对 AMCL
+        self._save_initial_pose((nx, ny, nyaw))
+        self._arm_pose_check(nx, ny, nyaw)
+        self.log(f'自动精修完成：修正 ({dx * 100:+.0f}, {dy * 100:+.0f}) cm / '
+                 f'{math.degrees(dyaw):+.1f}°，'
+                 f'残差 {result["score_before"] * 100:.0f} → '
+                 f'{result["score_after"] * 100:.0f} cm')
 
     # ================================================== 多地图管理
     def _migrate_legacy_maps(self):
@@ -1351,6 +1488,7 @@ class MainWindow(QMainWindow):
         else:
             self.log(f'地图[{name}] 加载失败：{m["yaml"]}（pgm/yaml 损坏或格式不支持）')
         self._load_points()
+        self._load_keepout()
 
     def _current_map_yaml(self):
         """当前地图的 yaml 路径（无地图返回 None）。"""
@@ -1655,6 +1793,7 @@ class MainWindow(QMainWindow):
     def _toggle_set_pose(self, checked):
         if checked:
             self.btn_add_goal.setChecked(False)
+            self.btn_draw_keepout.setChecked(False)
             self.map_view.set_mode(MapView.MODE_SET_POSE)
             self.log('请在地图上点击并拖动以设定初始位姿')
         else:
@@ -1672,6 +1811,7 @@ class MainWindow(QMainWindow):
     def _toggle_add_goal(self, checked):
         if checked:
             self.btn_set_pose.setChecked(False)
+            self.btn_draw_keepout.setChecked(False)
             self.map_view.set_mode(MapView.MODE_SET_GOAL)
             self.log('打点模式：在地图上点击（可拖动设朝向），松开即加入任务队列')
         else:
@@ -1684,6 +1824,8 @@ class MainWindow(QMainWindow):
             self._init_pose_set = True
             # 保存到地图目录：下次进导航自动精确复用，不用再手动点选
             self._save_initial_pose((x, y, yaw))
+            # 自动「激光贴图」精修：用户指个大概，1.5s 后用激光匹配修正
+            self._auto_refine_pose()
             # 4s 后核对 AMCL 是否翻面/跳走（对称环境镜像解主动告警）
             self._arm_pose_check(x, y, yaw)
             self.btn_set_pose.setChecked(False)
@@ -1699,6 +1841,12 @@ class MainWindow(QMainWindow):
         """把一个目标点加入任务队列（不立即导航）。"""
         if self.current_mode != 'navigation':
             QMessageBox.warning(self, '提示', '请先切换到导航模式再打点')
+            return
+        # 电子围栏：点在禁区多边形内 → 拒绝打点（从源头拦截危险/不可达目标）
+        if self._point_in_keepout(x, y):
+            QMessageBox.warning(self, '提示',
+                                f'该点 ({x:.2f}, {y:.2f}) 在禁区内，不能作为目标点')
+            self.log(f'打点被拒绝：({x:.2f}, {y:.2f}) 落在禁区内')
             return
         self._nav_queue.append({'name': name, 'x': x, 'y': y, 'yaw': yaw})
         self._refresh_queue_ui()
@@ -1840,10 +1988,11 @@ class MainWindow(QMainWindow):
         self._refresh_queue_ui()
 
     def _push_route_once(self):
-        """下发一次路线包：vmax + goal + start。重复包节点侧幂等。"""
+        """下发一次路线包：keepout + vmax + goal + start。重复包节点侧幂等。"""
         if not self._route_active:
             return
         lin = min(self.slider_linear.value() / 100.0, 0.50)
+        self.bridge.send_keepout(self._keepout_zones)
         self.bridge.send_route_ctrl(f'vmax:{lin:.2f}')
         self.bridge.send_route(self._route_pts)
         self.bridge.send_route_ctrl('start')
@@ -1980,6 +2129,104 @@ class MainWindow(QMainWindow):
         self._last_path_rx = 0.0
         self.map_view.update_queue([], -1)    # 清除地图上的队列旗帜
         self.log('已停止导航（队列已清空，机器人已停车）')
+
+    # ================================================== 电子围栏管理（按地图分组）
+    @property
+    def _keepout_file(self):
+        return self.profile.keepout_file
+
+    def _load_keepout(self):
+        keepout_file = self._keepout_file
+        try:
+            data = {}
+            if os.path.exists(keepout_file):
+                with open(keepout_file, encoding='utf-8') as f:
+                    data = json.load(f)
+            self._all_keepout = data.get('maps', {}) if isinstance(data, dict) else {}
+            key = self.current_map or '默认地图'
+            self._keepout_zones = self._all_keepout.get(key, [])
+        except Exception as e:
+            self.log(f'电子围栏文件读取失败: {e}')
+            self._keepout_zones = []
+            self._all_keepout = {}
+        self.map_view.set_keepout_zones(self._keepout_zones)
+
+    def _save_keepout(self):
+        keepout_file = self._keepout_file
+        try:
+            os.makedirs(os.path.dirname(keepout_file), exist_ok=True)
+            key = self.current_map or '默认地图'
+            self._all_keepout[key] = self._keepout_zones
+            with open(keepout_file, 'w', encoding='utf-8') as f:
+                json.dump({'maps': self._all_keepout}, f,
+                          ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.log(f'电子围栏保存失败: {e}')
+
+    def _point_in_keepout(self, x, y):
+        """点是否落在任一禁区多边形内（射线法，含边界）。"""
+        for z in self._keepout_zones:
+            poly = z.get('points', [])
+            inside = False
+            n = len(poly)
+            j = n - 1
+            for i in range(n):
+                xi, yi = poly[i]
+                xj, yj = poly[j]
+                if ((yi > y) != (yj > y)) and \
+                        (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+                    inside = not inside
+                j = i
+            if inside:
+                return True
+        return False
+
+    def _toggle_draw_keepout(self, checked):
+        if checked:
+            self.btn_set_pose.setChecked(False)
+            self.btn_add_goal.setChecked(False)
+            self.map_view.set_mode(MapView.MODE_DRAW_KEEPOUT)
+            self.log('禁区绘制：左键逐点添加，右键闭合（≥3 点），再点「＋禁区」退出')
+        else:
+            self.map_view.set_mode(MapView.MODE_PAN)
+
+    def _on_keepout_drawn(self, points):
+        """禁区闭合完成（主线程）：命名 → 保存 → 显示。"""
+        name, ok = QInputDialog.getText(self, '新建禁区', '禁区名称：')
+        if not ok or not name.strip():
+            self.map_view.set_mode(MapView.MODE_PAN)
+            self.btn_draw_keepout.setChecked(False)
+            return
+        name = name.strip()
+        self._keepout_zones.append({'name': name,
+                                    'points': [[round(x, 3), round(y, 3)]
+                                               for x, y in points]})
+        self._save_keepout()
+        self.map_view.set_keepout_zones(self._keepout_zones)
+        self.map_view.set_mode(MapView.MODE_PAN)
+        self.btn_draw_keepout.setChecked(False)
+        self.log(f'已添加禁区: {name}（{len(points)} 个顶点）')
+
+    def _clear_keepout(self):
+        if not self._keepout_zones:
+            # 兜底：内存里没有禁区，但屏幕可能残留未闭合的绘制草稿
+            # （虚线轮廓）—— 强制退出绘制模式并刷新一次显示。
+            self.map_view.set_mode(MapView.MODE_PAN)
+            self.btn_draw_keepout.setChecked(False)
+            self.map_view.set_keepout_zones([])
+            QMessageBox.information(self, '提示',
+                                    '当前地图没有已保存的禁区\n'
+                                    '（画面上的红色虚线轮廓是未闭合的绘制草稿，已清除）')
+            return
+        ret = QMessageBox.question(
+            self, '清空禁区', f'将删除当前地图全部 {len(self._keepout_zones)} 个禁区，确定？',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ret != QMessageBox.Yes:
+            return
+        self._keepout_zones = []
+        self._save_keepout()
+        self.map_view.set_keepout_zones([])
+        self.log('已清空当前地图的电子围栏禁区')
 
     # ================================================== 点位管理（按地图分组）
     @property
